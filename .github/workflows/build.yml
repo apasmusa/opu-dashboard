@@ -29,6 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Часовой пояс - Екатеринбург (UTC+5), как на ПК
+        shell: powershell
+        run: tzutil /s "Ekaterinburg Standard Time"
+
       - name: Собрать дашборд
         shell: powershell
         env:
