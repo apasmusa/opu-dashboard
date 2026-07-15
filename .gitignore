@@ -1,0 +1,9 @@
+# Локальные секреты - НИКОГДА не коммитить в публичный репозиторий
+opu_password.txt
+opu_sheet_id.txt
+bitrix_webhook.txt
+
+# Артефакты сборки
+_site/
+*.log
+*.xlsx

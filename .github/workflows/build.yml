@@ -1,0 +1,51 @@
+name: Build & Deploy Dashboard
+
+# Сборка и публикация дашборда ОПУ прямо в облаке GitHub.
+# Работает при выключенном ПК. Секреты (пароль, ID таблицы, вебхук Битрикса)
+# берутся из Settings -> Secrets and variables -> Actions и в готовый сайт не попадают.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'   # примерно каждые 15 минут (GitHub может задерживать)
+  workflow_dispatch:          # ручной запуск кнопкой
+  push:
+    branches: [main]          # пересборка при изменении кода в репозитории
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: windows-latest   # та же среда (PowerShell 5.1), что и локально
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Собрать дашборд
+        shell: powershell
+        env:
+          OPU_PASSWORD:   ${{ secrets.OPU_PASSWORD }}
+          OPU_SHEET_ID:   ${{ secrets.OPU_SHEET_ID }}
+          BITRIX_WEBHOOK: ${{ secrets.BITRIX_WEBHOOK }}
+          OPU_OUTPUT:     ${{ github.workspace }}\_site\index.html
+        run: |
+          New-Item -ItemType Directory -Force -Path "$env:GITHUB_WORKSPACE\_site" | Out-Null
+          & "$env:GITHUB_WORKSPACE\build\generate_dashboard.ps1"
+          if (-not (Test-Path "$env:GITHUB_WORKSPACE\_site\index.html")) { throw "index.html не собрался" }
+          if (Test-Path "$env:GITHUB_WORKSPACE\CNAME") { Copy-Item "$env:GITHUB_WORKSPACE\CNAME" "$env:GITHUB_WORKSPACE\_site\CNAME" -Force }
+          New-Item -ItemType File -Force -Path "$env:GITHUB_WORKSPACE\_site\.nojekyll" | Out-Null
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - uses: actions/deploy-pages@v4
+        id: deployment
