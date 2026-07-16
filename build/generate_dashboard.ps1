@@ -101,7 +101,7 @@ if ($null -ne $relsEntry) {
     }
     foreach ($hl in $sh1.worksheet.hyperlinks.hyperlink) {
         $rid = $hl.GetAttribute("id", $rNS)
-        if ($hl.ref -match "^C(\d+)$" -and $ridToUrl.ContainsKey($rid)) {
+        if ($hl.ref -match "^F(\d+)$" -and $ridToUrl.ContainsKey($rid)) {
             $linkMap[[int]$matches[1]] = $ridToUrl[$rid]
         }
     }
@@ -113,8 +113,8 @@ foreach ($row in $sh1.worksheet.sheetData.row) {
     if ($rNum -lt 3) { continue }
     $cells = @{}
     foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]] = $c } }
-    $fmt=(Get-CV $cells["A"]); $id=(Get-CV $cells["C"]); $dept=(Get-CV $cells["D"])
-    $stat=(Get-CV $cells["E"]); $comm=(Get-CV $cells["G"]); $nm=(Get-CV $cells["H"]); $ex=(Get-CV $cells["K"]); $dlRaw=(Get-CV $cells["M"]); $tzRaw=(Get-CV $cells["O"])
+    $fmt=(Get-CV $cells["A"]); $id=(Get-CV $cells["F"]); $dept=(Get-CV $cells["C"])
+    $stat=(Get-CV $cells["D"]); $comm=(Get-CV $cells["H"]); $nm=(Get-CV $cells["G"]); $ex=(Get-CV $cells["K"]); $dlRaw=(Get-CV $cells["M"]); $tzRaw=(Get-CV $cells["O"])
     if (($fmt -ne "Заявка" -and $fmt -ne "Предпроект") -or $stat -eq "Отложена" -or [string]::IsNullOrWhiteSpace($id)) { continue }
     $dot=$id.IndexOf("."); $idStr=if($dot -gt 0){$id.Substring(0,$dot)}else{$id}
     $dl=To-Date $dlRaw
@@ -131,7 +131,7 @@ $nonPP=@($records | Where-Object { $_.Fmt -ne "Предпроект" })
 $g1=@($nonPP | Where-Object { $_.Status -eq "Заявка принята" })
 $g2=@($nonPP | Where-Object { $_.Status -eq "ТЗ на разработке" -or $_.Dept -eq "ОА" })
 $g3=@($nonPP | Where-Object { $_.Dept -eq "ОРПО" })
-$g4=@($nonPP | Where-Object { $_.Dept -eq "Тестирование" })
+$g4=@($nonPP | Where-Object { $_.Status -eq "Тестирование" })
 $inGroupRows = @($g1 + $g2 + $g3 + $g4 + $g5 | Select-Object -ExpandProperty Row)
 $gu=@($records | Where-Object { $inGroupRows -notcontains $_.Row })
 $overdue=@($records | Where-Object { $null -ne $_.DaysOverdue } | Sort-Object DaysOverdue -Descending)
@@ -183,7 +183,7 @@ try {
         $bxId = $matches[1]
         $cells = @{}
         foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]] = $c } }
-        $idTxt=(Get-CV $cells["C"]); $stat=(Get-CV $cells["E"]); $nm=(Get-CV $cells["H"]); $ex=(Get-CV $cells["K"]); $dlR=(Get-CV $cells["M"])
+        $idTxt=(Get-CV $cells["F"]); $stat=(Get-CV $cells["D"]); $nm=(Get-CV $cells["G"]); $ex=(Get-CV $cells["K"]); $dlR=(Get-CV $cells["M"])
         $dot=$idTxt.IndexOf("."); if($dot -gt 0){$idTxt=$idTxt.Substring(0,$dot)}
         $sverkaSrc += [PSCustomObject]@{ BxId=$bxId; Reg=$idTxt; Name=$nm; RegStatus=$stat; RegExec=$ex; RegDl=(To-Date $dlR); Url=$u }
     }
