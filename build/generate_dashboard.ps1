@@ -243,7 +243,10 @@ $doneSt=@("Сделано","Выполнено","Выполнена","Завер
 foreach ($row in ($shProj.worksheet.sheetData.row | Where-Object { [int]$_.r -ge 3 })) {
     $cells=@{}; foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]]=$c } }
     $a=(Get-CV $cells["A"]); $bv=(Get-CV $cells["B"]); $st=(Get-CV $cells["C"]); $updRawT=(Get-CV $cells["D"]); $tn=(Get-CV $cells["F"]); $ex=(Get-CV $cells["G"]); $stRawT=(Get-CV $cells["H"]); $dlRawT=(Get-CV $cells["I"]); $tzRawT=(Get-CV $cells["K"])
-    if ($a -ne "") {
+    # Новый проект - когда название в A СМЕНИЛОСЬ (а не просто «A непустой»).
+    # Так парсинг работает и со старой структурой (A только в первой строке проекта),
+    # и с новой (A продублирован в каждой строке задачи).
+    if ($a -ne "" -and $a -ne $cPN) {
         if ($cPN -ne "" -and $cTasks.Count -gt 0) {
             $dn=@($cTasks | Where-Object { $doneSt -contains $_.S }).Count
             $projects += [PSCustomObject]@{ Name=$cPN; ID=$cPID; Total=$cTasks.Count; Done=$dn; Tasks=$cTasks.ToArray() }
