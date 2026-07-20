@@ -2,6 +2,8 @@
 opu_password.txt
 opu_sheet_id.txt
 bitrix_webhook.txt
+opu_planner_url.txt
+opu_reestr_url.txt
 
 # Артефакты сборки
 _site/
