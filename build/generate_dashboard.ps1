@@ -686,10 +686,13 @@ foreach ($p in $projects) {
         }
         $taskRows += "<div class='trow'><span class='ts $stCls'>$stLbl</span><span class='tname'>$tName</span>$exHtml$dlSpan$staleHtml</div>"
         $gDl = if ($null -ne $tDl) { $tDl.ToString("yyyy-MM-dd") } else { "" }
-        $gN = $t.N -replace '\\','\\\\' -replace '"','\"'
+        # Названия задач могут содержать переносы строк. В JavaScript они допустимы
+        # только в экранированном виде, иначе весь скрипт дашборда перестаёт загружаться.
+        $gN = $t.N -replace '\\','\\\\' -replace '"','\"' -replace "\`r",'\r' -replace "\`n",'\n'
         $gTasks += '{"n":"' + $gN + '","dl":"' + $gDl + '","done":' + $(if($isDone){"true"}else{"false"}) + '}'
     }
-    $gId=$p.ID -replace '"','\"'; $gNm=$p.Name -replace '"','\"'
+    $gId=$p.ID -replace '\\','\\\\' -replace '"','\"' -replace "\`r",'\r' -replace "\`n",'\n'
+    $gNm=$p.Name -replace '\\','\\\\' -replace '"','\"' -replace "\`r",'\r' -replace "\`n",'\n'
     $ganttEntries += '"' + $gId + '":{"name":"' + $gNm + '","tasks":[' + ($gTasks -join ',') + ']}'
     $pOvd=@($p.Tasks | Where-Object { -not ($doneSt -contains $_.S) -and $null -ne (To-Date $_.DlRaw) -and (To-Date $_.DlRaw) -lt $today }).Count
     $pHealth=[Math]::Max(0,100-[int]((1-$pct/100)*40)-[Math]::Min($pOvd*15,40))
