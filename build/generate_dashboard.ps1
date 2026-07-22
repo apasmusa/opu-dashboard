@@ -135,6 +135,42 @@ foreach ($row in $sh1.worksheet.sheetData.row) {
     }
 }
 
+# Реестр рисков. В дашборд попадают только активные риски и риски под наблюдением.
+# Критичный риск - одновременно высокая вероятность и высокое влияние (оценка 3 x 3 = 9).
+$risks = @()
+$riskFile = $sheetFiles["Реестр рисков"]
+if ($riskFile) {
+    $riskR = New-Object System.IO.StreamReader($zip.GetEntry($riskFile).Open())
+    [xml]$riskXml = $riskR.ReadToEnd(); $riskR.Close()
+    foreach ($row in $riskXml.worksheet.sheetData.row) {
+        if ([int]$row.r -lt 3) { continue }
+        $cells = @{}
+        foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]] = $c } }
+        $status = Get-CV $cells["K"]
+        if ($status -match '^(Закрыт|Реализовался)$') { continue }
+        $prob = Get-CV $cells["D"]; $impact = Get-CV $cells["E"]; $level = Get-CV $cells["F"]
+        $scale = @{ 'низкая'=1; 'средняя'=2; 'высокая'=3 }
+        $p = $scale[[string]$prob.ToLower()]; $i = $scale[[string]$impact.ToLower()]
+        $score = if ($null -ne $p -and $null -ne $i) { [int]$p * [int]$i } elseif ($level -match 'Высок') { 6 } elseif ($level -match 'Средн') { 3 } elseif ($level -match 'Низк') { 1 } else { 0 }
+        $risks += [PSCustomObject]@{
+            Project=(Get-CV $cells["A"]); Risk=(Get-CV $cells["B"]); Category=(Get-CV $cells["C"])
+            Probability=$prob; Impact=$impact; Owner=(Get-CV $cells["I"]); Status=$status; Score=$score
+        }
+    }
+}
+$criticalRisks = @($risks | Where-Object { $_.Score -ge 9 })
+$topRisks = @($risks | Sort-Object @{Expression='Score';Descending=$true}, Project, Risk | Select-Object -First 5)
+$riskRows = ''
+if ($topRisks.Count -eq 0) {
+    $riskRows = "<tr><td colspan='5' class='empty'>Активных рисков пока нет</td></tr>"
+} else {
+    foreach ($risk in $topRisks) {
+        $scoreLabel = if ($risk.Score -ge 9) { "Критичный" } elseif ($risk.Score -ge 6) { "Высокий" } elseif ($risk.Score -ge 3) { "Средний" } elseif ($risk.Score -gt 0) { "Низкий" } else { "Не оценен" }
+        $scoreColor = if ($risk.Score -ge 9) { '#dc2626' } elseif ($risk.Score -ge 6) { '#d97706' } elseif ($risk.Score -ge 3) { '#2563eb' } else { '#64748b' }
+        $riskRows += "<tr><td>$(Esc $risk.Project)</td><td>$(Esc $risk.Risk)</td><td>$(Esc $risk.Category)</td><td><span style='color:$scoreColor;font-weight:700'>$scoreLabel</span></td><td>$(Esc (Strip-Initials $risk.Owner))</td></tr>"
+    }
+}
+
 $g5=@($records | Where-Object { $_.Fmt -eq "Предпроект" })
 $nonPP=@($records | Where-Object { $_.Fmt -ne "Предпроект" })
 $g1=@($nonPP | Where-Object { $_.Status -eq "Заявка принята" })
@@ -725,7 +761,7 @@ $sb.AppendLine('.hdr-right{display:flex;align-items:center;gap:12px}.btn-refresh
 $sb.AppendLine('.btn-ar{display:inline-flex;align-items:center;gap:5px;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;line-height:1}.btn-ar:hover{background:#f1f5f9;color:#1e3a5f}.btn-ar.ar-active{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}') | Out-Null
 $sb.AppendLine('.grp-copy{background:none;border:none;cursor:pointer;opacity:.4;padding:3px;border-radius:4px;display:inline-flex;align-items:center;color:inherit;line-height:1}.grp-copy:hover{opacity:1;background:rgba(255,255,255,.25)}') | Out-Null
 $sb.AppendLine('.obs-btn{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:#7c3aed;color:#fff!important;border-radius:4px;font-size:10px;font-weight:600;text-decoration:none!important;white-space:nowrap;vertical-align:middle;margin-left:6px;line-height:1.6}.obs-btn:hover{background:#6d28d9}') | Out-Null
-$sb.AppendLine('.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}') | Out-Null
+$sb.AppendLine('.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px}') | Out-Null
 $sb.AppendLine('.card{background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #2563eb}') | Out-Null
 $sb.AppendLine('.card.red{border-left-color:#dc2626}.card.green{border-left-color:#16a34a}.card.amber{border-left-color:#d97706}') | Out-Null
 $sb.AppendLine('.num{font-size:38px;font-weight:700;line-height:1}.lbl{font-size:12px;color:#64748b;margin-top:5px}') | Out-Null
@@ -913,7 +949,9 @@ $sb.AppendLine("<div class='card'><div class='num'>$($records.Count)</div><div c
 $sb.AppendLine("<div class='card red'><div class='num'>$($overdue.Count)</div><div class='lbl'>просрочено</div></div>") | Out-Null
 $sb.AppendLine("<div class='card amber'><div class='num'>$($g4.Count)</div><div class='lbl'>на тестировании</div></div>") | Out-Null
 $sb.AppendLine("<div class='card green'><div class='num'>$doneThisMonth</div><div class='lbl'>выполнено в $monthName</div></div>") | Out-Null
+$sb.AppendLine("<div class='card red' title='Активные риски с высокой вероятностью и высоким влиянием'><div class='num'>$($criticalRisks.Count)</div><div class='lbl'>критичных рисков</div></div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
+$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap'><h2 style='margin-bottom:0'>5 наиболее значимых рисков</h2><span style='font-size:11px;color:#94a3b8'>Только активные и под наблюдением</span></div><table style='margin-top:12px'><thead><tr><th>Проект</th><th>Риск</th><th>Категория</th><th>Оценка</th><th>Ответственный</th></tr></thead><tbody>$riskRows</tbody></table></div>") | Out-Null
 $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлайн сегодня ($($todayTasks.Count))</div>" } else { "" }
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
