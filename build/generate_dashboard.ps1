@@ -951,7 +951,6 @@ $sb.AppendLine("<div class='card amber'><div class='num'>$($g4.Count)</div><div 
 $sb.AppendLine("<div class='card green'><div class='num'>$doneThisMonth</div><div class='lbl'>выполнено в $monthName</div></div>") | Out-Null
 $sb.AppendLine("<div class='card red' title='Активные риски с высокой вероятностью и высоким влиянием'><div class='num'>$($criticalRisks.Count)</div><div class='lbl'>критичных рисков</div></div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
-$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap'><h2 style='margin-bottom:0'>5 наиболее значимых рисков</h2><span style='font-size:11px;color:#94a3b8'>Только активные и под наблюдением</span></div><table style='margin-top:12px'><thead><tr><th>Проект</th><th>Риск</th><th>Категория</th><th>Оценка</th><th>Ответственный</th></tr></thead><tbody>$riskRows</tbody></table></div>") | Out-Null
 $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлайн сегодня ($($todayTasks.Count))</div>" } else { "" }
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
@@ -961,6 +960,10 @@ $sb.AppendLine("<div class='filter-bar'><input type='text' id='srch' placeholder
 $sb.AppendLine("<div class='grps'>$g1html$g2html$g3html$g4html</div>") | Out-Null
 $sb.AppendLine("<div class='grps' style='margin-top:12px'>$g5html$guHtml</div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
+
+$projLegend = "<div style='display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap'><span style='font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px'>Индекс здоровья проекта</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-g'></span>Норма (75-100)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-a'></span>Внимание (50-74)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-r'></span>Критично (&lt;50)</span><span style='font-size:10px;color:#94a3b8;margin-left:4px'>Наведите на точку для деталей</span></div>"
+$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px'><h2 style='margin-bottom:0'>Прогресс проектов</h2><button class='btn-urgent no-print' id='btn-urgent' onclick='toggleUrgent()'>Только срочное</button></div>$projLegend$projBars</div>") | Out-Null
+$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap'><h2 style='margin-bottom:0'>5 наиболее значимых рисков</h2><span style='font-size:11px;color:#94a3b8'>Только активные и под наблюдением</span></div><table style='margin-top:12px'><thead><tr><th>Проект</th><th>Риск</th><th>Категория</th><th>Оценка</th><th>Ответственный</th></tr></thead><tbody>$riskRows</tbody></table></div>") | Out-Null
 
 $sb.AppendLine('<div class="row r2" style="margin-bottom:18px">') | Out-Null
 $sb.AppendLine('<div class="panel"><h2>Загрузка исполнителей</h2><div class="ch"><canvas id="eC"></canvas></div></div>') | Out-Null
@@ -989,9 +992,7 @@ $sb.AppendLine('</div>') | Out-Null
 
 $sb.AppendLine("<div class='panel' style='margin-bottom:18px'><h2>Выполнимость к дедлайнам — ближайшие $planDays дней</h2>$loadHtml</div>") | Out-Null
 
-$sb.AppendLine('<div class="row r32">') | Out-Null
-$projLegend = "<div style='display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap'><span style='font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px'>Индекс здоровья проекта</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-g'></span>Норма (75-100)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-a'></span>Внимание (50-74)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-r'></span>Критично (&lt;50)</span><span style='font-size:10px;color:#94a3b8;margin-left:4px'>Наведите на точку для деталей</span></div>"
-$sb.AppendLine("<div class='panel'><div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px'><h2 style='margin-bottom:0'>Прогресс проектов</h2><button class='btn-urgent no-print' id='btn-urgent' onclick='toggleUrgent()'>Только срочное</button></div>$projLegend$projBars</div>") | Out-Null
+$sb.AppendLine('<div class="row">') | Out-Null
 $sb.AppendLine("<div class='panel'><h2>Ближайшие дедлайны</h2><table id='up-tbl'><thead><tr><th class='srt' onclick='sortTable(this)'>ID</th><th class='srt' onclick='sortTable(this)'>Заявка</th><th class='srt' onclick='sortTable(this)'>Исп.</th><th class='srt' onclick='sortTable(this)'>Дата</th><th class='srt' onclick='sortTable(this)'>Осталось</th></tr></thead><tbody>$upcomingRows</tbody></table></div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
 
