@@ -467,11 +467,14 @@ $shAR=New-Object System.IO.StreamReader($zip.GetEntry($sheetFiles["Архив"])
 [xml]$shArch=$shAR.ReadToEnd(); $shAR.Close()
 $zip.Dispose()
 $doneThisMonth=0
+$weekStartDigest=$today.AddDays(-6)
+$doneThisWeek=0
 foreach ($row in $shArch.worksheet.sheetData.row) {
     if ([int]$row.r -lt 3) { continue }
     $cells=@{}; foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]]=$c } }
     $dd=To-Date (Get-CV $cells["K"])
     if ($null -ne $dd -and $dd -ge $monthStart) { $doneThisMonth++ }
+    if ($null -ne $dd -and $dd -ge $weekStartDigest) { $doneThisWeek++ }
 }
 
 # ── Расчёт выполнимости к дедлайнам (Этап 1: модель загрузки) ────────────────
@@ -535,6 +538,18 @@ if ($execTZ.Count -gt 0) {
 }
 $loadHtml = "<table><thead><tr><th>Исполнитель</th><th>Трудозатраты (дн.)</th><th>Рабочих дней</th><th>Коэффициент</th><th>Статус</th></tr></thead><tbody>$loadRows</tbody></table>"
 $loadHtml += "<div style='font-size:11px;color:#94a3b8;margin-top:8px'>Окно: ближайшие $planDays дн. ($availWorkDays рабочих). К&gt;1.0 = объём задач превышает доступное время. В скобках — доля задач с заполненными трудозатратами.</div>"
+$forecastRows = ""
+$forecastCount = 0
+foreach ($nm in ($execTZ.Keys | Sort-Object { if ($availWorkDays -gt 0) { $execTZ[$_]/$availWorkDays } else { 0 } } -Descending)) {
+    $coeff = if ($availWorkDays -gt 0) { [math]::Round($execTZ[$nm]/$availWorkDays,2) } else { 0 }
+    if ($coeff -lt 0.8) { continue }
+    $forecastCount++
+    $state = if ($coeff -gt 1.0) { "Перегружен" } elseif ($coeff -ge 0.8) { "Риск перегрузки" } else { "Норма" }
+    $stateCls = if ($coeff -gt 1.0) { "red" } else { "orange" }
+    $forecastRows += "<div class='fc-row'><span>$(Esc $nm)</span><span class='$stateCls'>$state</span><b>$([math]::Round($coeff*100))%</b></div>"
+}
+if ($forecastRows -eq "") { $forecastRows = "<div class='fc-empty'>В ближайшие $planDays дней прогноз перегрузки не выявлен</div>" }
+$forecastHtml = "<details class='forecast'><summary>Прогноз перегрузки команды - $forecastCount</summary><div class='fc-note'>Порог риска - 80% доступного рабочего времени. Учитываются задачи с заполненными трудозатратами.</div>$forecastRows</details>"
 
 # ── Данные для JS сценарного движка ──────────────────────────────────────────
 $sdTasks = [System.Collections.Generic.List[object]]::new()
@@ -773,6 +788,8 @@ if ($noDlRows -eq "") { $noDlRows='<tr><td colspan="4" class="empty">все за
 
 $ganttEntries=@()
 $projBars=""
+$projectHealthCards=""
+$criticalProjects=0
 foreach ($p in $projects) {
     $pct=if($p.Total -gt 0){[int]($p.Done/$p.Total*100)}else{0}
     $clr=if($pct -ge 75){"#16a34a"}elseif($pct -ge 40){"#2563eb"}else{"#d97706"}
@@ -830,9 +847,16 @@ foreach ($p in $projects) {
     $pHealth=[Math]::Max(0,100-[int]((1-$pct/100)*40)-[Math]::Min($pOvd*15,40))
     $phCls=if($pHealth -ge 75){"ph-g"}elseif($pHealth -ge 50){"ph-a"}else{"ph-r"}
     $phStatus=if($pHealth -ge 75){'Норма'}elseif($pHealth -ge 50){'Внимание'}else{'Критично'}
+    if ($pHealth -lt 50) { $criticalProjects++ }
     $phTip="Индекс здоровья: $pHealth / 100 — $phStatus. Складывается из: степени выполнения задач ($pct% выполнено) и числа просроченных этапов ($pOvd шт.). Снижается при низком прогрессе и наличии просрочек."
+    $pSoon=@($p.Tasks | Where-Object { -not ($doneSt -contains $_.S) -and $null -ne (To-Date $_.DlRaw) -and (To-Date $_.DlRaw) -ge $today -and (To-Date $_.DlRaw) -le $today.AddDays(7) }).Count
+    $pRisks=@($risks | Where-Object { $_.Project -eq $p.Name -and $_.Score -ge 6 }).Count
+    $projectHealthCards += "<div class='ph-card $phCls'><div class='ph-card-h'><b>$(Esc $p.Name)</b><span>$pHealth</span></div><div class='ph-card-state'>$phStatus</div><div class='ph-card-meta'>Прогресс: $pct% · Просрочено: $pOvd · Срок 7 дн.: $pSoon · Риски: $pRisks</div></div>"
     $projBars += "<details class='proj'><summary class='proj-hdr'><span><span class='ph-dot $phCls' title='$phTip'></span><b>$(Esc $p.ID)</b> - $(Esc $p.Name)</span><div style='display:flex;align-items:center;gap:8px'><button class='btn-gantt no-print' onclick='event.preventDefault();openGantt(this)' title='Диаграмма Ганта'>Гант</button><span class='proj-pct'>$($p.Done)/$($p.Total) ($pct%)</span></div></summary><div class='track' style='margin:6px 0 8px'><div class='bar' style='width:${pct}%;background:$clr'></div></div><div class='tlist'>$taskRows</div></details>"
 }
+$dueWeek = @($records | Where-Object { $null -ne $_.DaysLeft -and $_.DaysLeft -le 7 }).Count
+$dueWeek += @($projects | ForEach-Object { $_.Tasks } | Where-Object { -not ($doneSt -contains $_.S) -and $null -ne (To-Date $_.DlRaw) -and (To-Date $_.DlRaw) -ge $today -and (To-Date $_.DlRaw) -le $today.AddDays(7) }).Count
+$weeklyDigest = "За последние 7 дней выполнено: $doneThisWeek. В работе: $($records.Count) заявок. Просрочено: $($overdue.Count). Ближайшие сроки: $dueWeek. Критичные риски: $($criticalRisks.Count). Критичные проекты: $criticalProjects."
 
 $ganttJson = "{" + ($ganttEntries -join ",") + "}"
 $execLabels="[" + (($byExec | ForEach-Object { '"' + (Esc (Strip-Initials $_.Name)) + '"' }) -join ",") + "]"
@@ -862,6 +886,7 @@ $sb.AppendLine('.card{background:#fff;border-radius:10px;padding:18px 20px;box-s
 $sb.AppendLine('.card.red{border-left-color:#dc2626}.card.green{border-left-color:#16a34a}.card.amber{border-left-color:#d97706}') | Out-Null
 $sb.AppendLine('.num{font-size:38px;font-weight:700;line-height:1}.lbl{font-size:12px;color:#64748b;margin-top:5px}') | Out-Null
 $sb.AppendLine('.attention{background:#fff;border:1px solid #fecaca;border-radius:10px;margin-bottom:18px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07)}.attention summary{list-style:none;cursor:pointer}.attention summary::-webkit-details-marker{display:none}.att-hdr{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:15px 20px;flex-wrap:wrap}.att-hdr::before{content:"▶";font-size:10px;color:#b91c1c;transition:transform .15s}.attention[open] .att-hdr::before{transform:rotate(90deg)}.att-hdr h2{color:#991b1b;margin:0}.att-hint{font-size:11px;color:#64748b;margin-left:auto}.att-summary{display:flex;gap:7px;flex-wrap:wrap;padding:0 20px 13px}.att-count{font-size:11px;font-weight:700;padding:4px 8px;border-radius:12px;background:#f1f5f9;color:#475569}.att-count.red{background:#fee2e2;color:#b91c1c}.att-count.amber{background:#fef3c7;color:#92400e}.att-list{border-top:1px solid #fee2e2}.att-row{display:flex;gap:10px;padding:10px 20px;border-bottom:1px solid #fef2f2;align-items:flex-start}.att-row:last-child{border-bottom:none}.att-badge{display:inline-block;min-width:112px;text-align:center;border-radius:4px;padding:3px 6px;font-size:10px;font-weight:700;white-space:nowrap}.att-r1{background:#fee2e2;color:#b91c1c}.att-r2{background:#fef3c7;color:#92400e}.att-r3{background:#e0e7ff;color:#3730a3}.att-main{min-width:0}.att-title{font-size:13px;font-weight:600;color:#334155;text-decoration:none}.a.att-title:hover{color:#2563eb;text-decoration:underline}.att-detail{font-size:11px;color:#64748b;margin-top:3px}.att-empty,.att-more{padding:12px 20px;color:#64748b;font-size:12px}.att-more{background:#f8fafc;text-align:center}') | Out-Null
+$sb.AppendLine('.digest{background:#1e3a5f;color:#eff6ff;border-radius:10px;padding:16px 20px;margin-bottom:18px;box-shadow:0 1px 4px rgba(0,0,0,.1)}.digest-h{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:8px}.digest h2{color:#fff;margin:0}.digest p{font-size:13px;line-height:1.5}.digest button{padding:5px 9px;border:1px solid #93c5fd;border-radius:6px;background:transparent;color:#dbeafe;cursor:pointer;font-size:11px;font-weight:700}.digest button:hover{background:#eff6ff;color:#1e3a5f}.health-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.ph-card{border:1px solid #e2e8f0;border-radius:8px;padding:12px;background:#f8fafc}.ph-card.ph-g{border-left:4px solid #16a34a}.ph-card.ph-a{border-left:4px solid #d97706}.ph-card.ph-r{border-left:4px solid #dc2626}.ph-card-h{display:flex;justify-content:space-between;gap:8px;font-size:12px}.ph-card-h span{font-weight:800;font-size:16px}.ph-card-state{font-size:11px;font-weight:700;margin:5px 0;color:#475569}.ph-card-meta{font-size:10.5px;color:#64748b;line-height:1.45}.forecast{border:1px solid #fde68a;border-radius:8px;overflow:hidden}.forecast summary{cursor:pointer;list-style:none;padding:11px 14px;background:#fffbeb;color:#92400e;font-size:12px;font-weight:700}.forecast summary::-webkit-details-marker{display:none}.fc-note{font-size:10.5px;color:#64748b;padding:9px 14px;border-bottom:1px solid #fef3c7}.fc-row{display:grid;grid-template-columns:1fr auto 44px;gap:10px;padding:8px 14px;border-bottom:1px solid #fef3c7;font-size:12px;align-items:center}.fc-row:last-child{border-bottom:none}.fc-row b{text-align:right}.fc-empty{padding:14px;color:#64748b;font-size:12px}.fc-row .red{color:#b91c1c;font-weight:700}.fc-row .orange{color:#b45309;font-weight:700}') | Out-Null
 $sb.AppendLine('.row{display:grid;gap:14px;margin-bottom:18px}.r2{grid-template-columns:1fr 1fr}.r32{grid-template-columns:3fr 2fr}') | Out-Null
 $sb.AppendLine('.panel{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.07);position:relative}') | Out-Null
 $sb.AppendLine('.ch{position:relative;height:220px}.ch-h{position:relative;height:200px}') | Out-Null
@@ -1057,6 +1082,7 @@ if ($plannerAvailable -and $attentionCounts.Unplanned -gt 0) { $attSummary += "<
 if ($attentionCounts.Risks -gt 0) { $attSummary += "<span class='att-count red'>Критичные риски: $($attentionCounts.Risks)</span>" }
 if ($plannerAvailable -and $attentionCounts.Overload -gt 0) { $attSummary += "<span class='att-count amber'>Перегрузка: $($attentionCounts.Overload)</span>" }
 $sb.AppendLine("<details class='attention'><summary class='att-hdr'><h2>Требует внимания</h2><span class='att-hint'>$attPlanHint</span></summary><div class='att-summary'>$attSummary</div><div class='att-list'>$attentionRows$attentionMore</div></details>") | Out-Null
+$sb.AppendLine("<section class='digest'><div class='digest-h'><h2>Недельный управленческий дайджест</h2><button class='no-print' onclick='copyWeeklyDigest()'>Скопировать</button></div><p id='weekly-digest'>$(Esc $weeklyDigest)</p></section>") | Out-Null
 $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлайн сегодня ($($todayTasks.Count))</div>" } else { "" }
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
@@ -1068,6 +1094,7 @@ $sb.AppendLine("<div class='grps' style='margin-top:12px'>$g5html$guHtml</div>")
 $sb.AppendLine('</div>') | Out-Null
 
 $projLegend = "<div style='display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap'><span style='font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px'>Индекс здоровья проекта</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-g'></span>Норма (75-100)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-a'></span>Внимание (50-74)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-r'></span>Критично (&lt;50)</span><span style='font-size:10px;color:#94a3b8;margin-left:4px'>Наведите на точку для деталей</span></div>"
+$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><h2>Карточки здоровья проектов</h2><div class='health-cards'>$projectHealthCards</div></div>") | Out-Null
 $sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:center;justify-content:space-between;margin-bottom:14px'><h2 style='margin-bottom:0'>Прогресс проектов</h2><button class='btn-urgent no-print' id='btn-urgent' onclick='toggleUrgent()'>Только срочное</button></div>$projLegend$projBars</div>") | Out-Null
 $sb.AppendLine("<div class='panel' style='margin-bottom:18px'><div style='display:flex;align-items:baseline;justify-content:space-between;gap:12px;flex-wrap:wrap'><h2 style='margin-bottom:0'>5 наиболее значимых рисков</h2><span style='font-size:11px;color:#94a3b8'>Только активные и под наблюдением</span></div><table style='margin-top:12px'><thead><tr><th>Проект</th><th>Риск</th><th>Категория</th><th>Оценка</th><th>Ответственный</th></tr></thead><tbody>$riskRows</tbody></table></div>") | Out-Null
 
@@ -1096,7 +1123,7 @@ $sb.AppendLine('<div class="panel"><h2>Нагрузка по отделам</h2>
 $sb.AppendLine("<div class='panel'><h2>Пик нагрузки — 7 дней</h2><div style='font-size:11px;color:#94a3b8;margin-bottom:12px'>Исполнители с дедлайнами на следующие 7 дней</div>$peakRows</div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
 
-$sb.AppendLine("<div class='panel' style='margin-bottom:18px'><h2>Выполнимость к дедлайнам — ближайшие $planDays дней</h2>$loadHtml</div>") | Out-Null
+$sb.AppendLine("<div class='row r2' style='margin-bottom:18px'><div class='panel'><h2>Выполнимость к дедлайнам — ближайшие $planDays дней</h2>$loadHtml</div><div class='panel'><h2>Прогноз перегрузки</h2>$forecastHtml</div></div>") | Out-Null
 
 $sb.AppendLine('<div class="row">') | Out-Null
 $sb.AppendLine("<div class='panel'><h2>Ближайшие дедлайны</h2><table id='up-tbl'><thead><tr><th class='srt' onclick='sortTable(this)'>ID</th><th class='srt' onclick='sortTable(this)'>Заявка</th><th class='srt' onclick='sortTable(this)'>Исп.</th><th class='srt' onclick='sortTable(this)'>Дата</th><th class='srt' onclick='sortTable(this)'>Осталось</th></tr></thead><tbody>$upcomingRows</tbody></table></div>") | Out-Null
@@ -1316,6 +1343,7 @@ $sb.AppendLine('    t.style.display="block";') | Out-Null
 $sb.AppendLine('    setTimeout(()=>{t.style.display="none";},2200);') | Out-Null
 $sb.AppendLine('  });') | Out-Null
 $sb.AppendLine('}') | Out-Null
+$sb.AppendLine('function copyWeeklyDigest(){const el=document.getElementById("weekly-digest");if(!el)return;navigator.clipboard.writeText(el.innerText.trim()).then(function(){const t=document.getElementById("toast");t.textContent="Дайджест скопирован";t.style.display="block";setTimeout(function(){t.style.display="none";},2200);});}') | Out-Null
 $sb.AppendLine('function openGantt(btn){') | Out-Null
 $sb.AppendLine('  const b=btn.closest("summary").querySelector("b");') | Out-Null
 $sb.AppendLine('  const pid=b?b.textContent.trim():"";') | Out-Null
