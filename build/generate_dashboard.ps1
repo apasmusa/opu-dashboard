@@ -306,6 +306,102 @@ if ($cPN -ne "" -and $cTasks.Count -gt 0) {
     $projects += [PSCustomObject]@{ Name=$cPN; ID=$cPID; Total=$cTasks.Count; Done=$dn; Tasks=$cTasks.ToArray() }
 }
 
+# Планировщик - назначения задач. Если листа нет в выгрузке, связанные проверки
+# не выводятся: это защищает от ложных предупреждений при первом запуске.
+$plannerAssignments = @()
+$plannerAvailable = $false
+$plannerFile = $sheetFiles["Планировщик"]
+if ($plannerFile) {
+    $plannerEntry = $zip.GetEntry($plannerFile)
+    if ($null -ne $plannerEntry) {
+        $plannerR = New-Object System.IO.StreamReader($plannerEntry.Open())
+        [xml]$plannerXml = $plannerR.ReadToEnd(); $plannerR.Close()
+        foreach ($row in $plannerXml.worksheet.sheetData.row) {
+            if ([int]$row.r -lt 2) { continue }
+            $cells = @{}
+            foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]] = $c } }
+            $taskId = (Get-CV $cells["B"]).Trim()
+            $date = To-Date (Get-CV $cells["E"])
+            if ([string]::IsNullOrWhiteSpace($taskId) -or $null -eq $date) { continue }
+            $hours = 0.0; try { $hours = [double](Get-CV $cells["F"]) } catch {}
+            $plannerAssignments += [PSCustomObject]@{
+                TaskId=$taskId; Executor=(Get-CV $cells["D"]); Date=$date.Date; Hours=$hours
+            }
+        }
+        $plannerAvailable = $true
+    }
+}
+
+# Требует внимания - единый список для оперативного контроля.
+# «Не запланировано» означает: у активной задачи с исполнителем нет карточки
+# на сегодня или будущую дату в листе «Планировщик».
+$inactiveStatuses = @("Сделано","Выполнено","Выполнена","Выполнен","Завершён","Завершено","Завершена","Закрыт","Закрыта","Закрыто","Отложено","Отложена","Приостановлено","Отменено","Отменена")
+$attentionItems = [System.Collections.Generic.List[object]]::new()
+$attentionCounts = @{ Overdue=0; Soon=0; NoExec=0; Unplanned=0; Risks=0; Overload=0 }
+$plannedFuture = @{}
+if ($plannerAvailable) {
+    foreach ($a in $plannerAssignments) {
+        if ($a.Date -ge $today) { $plannedFuture[$a.TaskId] = $true }
+    }
+}
+function Add-AttentionItem($type, $rank, $title, $detail, $url) {
+    $attentionItems.Add([PSCustomObject]@{ Type=$type; Rank=$rank; Title=$title; Detail=$detail; Url=$url })
+}
+foreach ($r in $records) {
+    if ($inactiveStatuses -contains $r.Status) { continue }
+    $taskId = "R$($r.ID)"
+    $base = "Заявка $($r.ID) · $(Strip-Initials $r.Exec)"
+    if ($null -ne $r.DlDate -and $r.DlDate -lt $today) {
+        $attentionCounts.Overdue++; Add-AttentionItem "Просрочено" 1 $r.Name "$base · просрочка $($r.DaysOverdue) дн." $linkMap[$r.Row]
+    } elseif ($null -ne $r.DlDate -and $r.DlDate -le $today.AddDays(3)) {
+        $attentionCounts.Soon++; Add-AttentionItem "Срок до 3 дней" 2 $r.Name "$base · срок $($r.DlDate.ToString('dd.MM.yyyy'))" $linkMap[$r.Row]
+    }
+    if ([string]::IsNullOrWhiteSpace($r.Exec)) {
+        $attentionCounts.NoExec++; Add-AttentionItem "Нет исполнителя" 1 $r.Name "Заявка $($r.ID)" $linkMap[$r.Row]
+    } elseif ($plannerAvailable -and -not $plannedFuture.ContainsKey($taskId)) {
+        $attentionCounts.Unplanned++; Add-AttentionItem "Не запланировано" 3 $r.Name "$base · нет карточки на сегодня или позднее" $linkMap[$r.Row]
+    }
+}
+foreach ($p in $projects) {
+    foreach ($t in $p.Tasks) {
+        if ($inactiveStatuses -contains $t.S) { continue }
+        $taskId = "P$($p.ID):$($t.N)"; $tDl = To-Date $t.DlRaw
+        $base = "$($p.Name) · $(Strip-Initials $t.Ex)"
+        if ($null -ne $tDl -and $tDl -lt $today) {
+            $days = [int]($today - $tDl).TotalDays
+            $attentionCounts.Overdue++; Add-AttentionItem "Просрочено" 1 $t.N "$base · просрочка $days дн." ""
+        } elseif ($null -ne $tDl -and $tDl -le $today.AddDays(3)) {
+            $attentionCounts.Soon++; Add-AttentionItem "Срок до 3 дней" 2 $t.N "$base · срок $($tDl.ToString('dd.MM.yyyy'))" ""
+        }
+        if ([string]::IsNullOrWhiteSpace($t.Ex)) {
+            $attentionCounts.NoExec++; Add-AttentionItem "Нет исполнителя" 1 $t.N "$($p.Name)" ""
+        } elseif ($plannerAvailable -and -not $plannedFuture.ContainsKey($taskId)) {
+            $attentionCounts.Unplanned++; Add-AttentionItem "Не запланировано" 3 $t.N "$base · нет карточки на сегодня или позднее" ""
+        }
+    }
+}
+foreach ($risk in $criticalRisks) {
+    $attentionCounts.Risks++; Add-AttentionItem "Критичный риск" 1 $risk.Risk "$($risk.Project) · ответственный: $(Strip-Initials $risk.Owner)" ""
+}
+if ($plannerAvailable) {
+    $todayLoad = @($plannerAssignments | Where-Object { $_.Date -eq $today } | Group-Object Executor)
+    foreach ($load in $todayLoad) {
+        $hours = [Math]::Round((@($load.Group | Measure-Object -Property Hours -Sum).Sum), 1)
+        if ($hours -gt 8) {
+            $attentionCounts.Overload++; Add-AttentionItem "Перегрузка сегодня" 2 (Strip-Initials $load.Name) "$hours ч. запланировано на сегодня" ""
+        }
+    }
+}
+$attentionTotal = $attentionItems.Count
+$attentionRows = ""
+foreach ($item in @($attentionItems | Sort-Object Rank, Type, Title | Select-Object -First 15)) {
+    $linkStart = if (-not [string]::IsNullOrWhiteSpace($item.Url)) { "<a class='att-title' href='$(Esc $item.Url)' target='_blank' rel='noopener'>" } else { "<span class='att-title'>" }
+    $linkEnd = if (-not [string]::IsNullOrWhiteSpace($item.Url)) { "</a>" } else { "</span>" }
+    $attentionRows += "<div class='att-row'><span class='att-badge att-r$($item.Rank)'>$(Esc $item.Type)</span><div class='att-main'>$linkStart$(Esc $item.Title)$linkEnd<div class='att-detail'>$(Esc $item.Detail)</div></div></div>"
+}
+if ($attentionRows -eq "") { $attentionRows = "<div class='att-empty'>Открытых критичных вопросов не выявлено</div>" }
+$attentionMore = if ($attentionTotal -gt 15) { "<div class='att-more'>Показаны первые 15 из $attentionTotal вопросов</div>" } else { "" }
+
 # Напоминалка: окно дат с учётом выходных
 $remDates = [System.Collections.Generic.List[PSCustomObject]]::new()
 $dow = [int]$today.DayOfWeek   # 0=Вс,1=Пн,...,5=Пт,6=Сб
@@ -765,6 +861,7 @@ $sb.AppendLine('.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax
 $sb.AppendLine('.card{background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #2563eb}') | Out-Null
 $sb.AppendLine('.card.red{border-left-color:#dc2626}.card.green{border-left-color:#16a34a}.card.amber{border-left-color:#d97706}') | Out-Null
 $sb.AppendLine('.num{font-size:38px;font-weight:700;line-height:1}.lbl{font-size:12px;color:#64748b;margin-top:5px}') | Out-Null
+$sb.AppendLine('.attention{background:#fff;border:1px solid #fecaca;border-radius:10px;margin-bottom:18px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.07)}.att-hdr{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:16px 20px 12px;flex-wrap:wrap}.att-hdr h2{color:#991b1b;margin:0}.att-hint{font-size:11px;color:#64748b}.att-summary{display:flex;gap:7px;flex-wrap:wrap;padding:0 20px 13px}.att-count{font-size:11px;font-weight:700;padding:4px 8px;border-radius:12px;background:#f1f5f9;color:#475569}.att-count.red{background:#fee2e2;color:#b91c1c}.att-count.amber{background:#fef3c7;color:#92400e}.att-list{border-top:1px solid #fee2e2}.att-row{display:flex;gap:10px;padding:10px 20px;border-bottom:1px solid #fef2f2;align-items:flex-start}.att-row:last-child{border-bottom:none}.att-badge{display:inline-block;min-width:112px;text-align:center;border-radius:4px;padding:3px 6px;font-size:10px;font-weight:700;white-space:nowrap}.att-r1{background:#fee2e2;color:#b91c1c}.att-r2{background:#fef3c7;color:#92400e}.att-r3{background:#e0e7ff;color:#3730a3}.att-main{min-width:0}.att-title{font-size:13px;font-weight:600;color:#334155;text-decoration:none}.a.att-title:hover{color:#2563eb;text-decoration:underline}.att-detail{font-size:11px;color:#64748b;margin-top:3px}.att-empty,.att-more{padding:12px 20px;color:#64748b;font-size:12px}.att-more{background:#f8fafc;text-align:center}') | Out-Null
 $sb.AppendLine('.row{display:grid;gap:14px;margin-bottom:18px}.r2{grid-template-columns:1fr 1fr}.r32{grid-template-columns:3fr 2fr}') | Out-Null
 $sb.AppendLine('.panel{background:#fff;border-radius:10px;padding:20px;box-shadow:0 1px 4px rgba(0,0,0,.07);position:relative}') | Out-Null
 $sb.AppendLine('.ch{position:relative;height:220px}.ch-h{position:relative;height:200px}') | Out-Null
@@ -951,6 +1048,15 @@ $sb.AppendLine("<div class='card amber'><div class='num'>$($g4.Count)</div><div 
 $sb.AppendLine("<div class='card green'><div class='num'>$doneThisMonth</div><div class='lbl'>выполнено в $monthName</div></div>") | Out-Null
 $sb.AppendLine("<div class='card red' title='Активные риски с высокой вероятностью и высоким влиянием'><div class='num'>$($criticalRisks.Count)</div><div class='lbl'>критичных рисков</div></div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
+$attPlanHint = if ($plannerAvailable) { "Проверка планировщика выполнена" } else { "Планировщик не найден в выгрузке - его проверки не показаны" }
+$attSummary = "<span class='att-count red'>Всего: $attentionTotal</span>"
+if ($attentionCounts.Overdue -gt 0) { $attSummary += "<span class='att-count red'>Просрочено: $($attentionCounts.Overdue)</span>" }
+if ($attentionCounts.Soon -gt 0) { $attSummary += "<span class='att-count amber'>Срок до 3 дней: $($attentionCounts.Soon)</span>" }
+if ($attentionCounts.NoExec -gt 0) { $attSummary += "<span class='att-count red'>Без исполнителя: $($attentionCounts.NoExec)</span>" }
+if ($plannerAvailable -and $attentionCounts.Unplanned -gt 0) { $attSummary += "<span class='att-count amber'>Не запланировано: $($attentionCounts.Unplanned)</span>" }
+if ($attentionCounts.Risks -gt 0) { $attSummary += "<span class='att-count red'>Критичные риски: $($attentionCounts.Risks)</span>" }
+if ($plannerAvailable -and $attentionCounts.Overload -gt 0) { $attSummary += "<span class='att-count amber'>Перегрузка: $($attentionCounts.Overload)</span>" }
+$sb.AppendLine("<section class='attention'><div class='att-hdr'><h2>Требует внимания</h2><span class='att-hint'>$attPlanHint</span></div><div class='att-summary'>$attSummary</div><div class='att-list'>$attentionRows$attentionMore</div></section>") | Out-Null
 $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлайн сегодня ($($todayTasks.Count))</div>" } else { "" }
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
