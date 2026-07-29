@@ -123,13 +123,13 @@ foreach ($row in $sh1.worksheet.sheetData.row) {
     $cells = @{}
     foreach ($c in $row.c) { if ($c.r -match '^([A-Z]+)') { $cells[$matches[1]] = $c } }
     $fmt=(Get-CV $cells["A"]); $id=(Get-CV $cells["F"]); $dept=(Get-CV $cells["C"])
-    $stat=(Get-CV $cells["D"]); $comm=(Get-CV $cells["H"]); $nm=(Get-CV $cells["G"]); $ex=(Get-CV $cells["K"]); $dlRaw=(Get-CV $cells["M"]); $tzRaw=(Get-CV $cells["O"])
+    $stat=(Get-CV $cells["D"]); $comm=(Get-CV $cells["H"]); $nm=(Get-CV $cells["G"]); $ex=(Get-CV $cells["K"]); $dlRaw=(Get-CV $cells["M"]); $tzRaw=(Get-CV $cells["O"]); $executionDept=(Get-CV $cells["AC"])
     if (($fmt -ne "Заявка" -and $fmt -ne "Предпроект") -or $stat -eq "Отложена" -or [string]::IsNullOrWhiteSpace($id)) { continue }
     $dot=$id.IndexOf("."); $idStr=if($dot -gt 0){$id.Substring(0,$dot)}else{$id}
     $dl=To-Date $dlRaw
     $tzVal=0.0; try{if(-not [string]::IsNullOrWhiteSpace($tzRaw)){$tzVal=[double]$tzRaw}}catch{}
     $records += [PSCustomObject]@{
-        ID=$idStr; Fmt=$fmt; Dept=$dept; Status=$stat; Name=$nm; Exec=$ex; Comm=$comm; DlDate=$dl; Row=$rNum; TZ=$tzVal
+        ID=$idStr; Fmt=$fmt; Dept=$dept; Status=$stat; Name=$nm; Exec=$ex; ExecutionDept=$executionDept; Comm=$comm; DlDate=$dl; Row=$rNum; TZ=$tzVal
         DaysOverdue=if($null -ne $dl -and $dl -lt $today){[int]($today-$dl).TotalDays}else{$null}
         DaysLeft=if($null -ne $dl -and $dl -ge $today){[int]($dl-$today).TotalDays}else{$null}
     }
@@ -171,14 +171,41 @@ if ($topRisks.Count -eq 0) {
     }
 }
 
-$g5=@($records | Where-Object { $_.Fmt -eq "Предпроект" })
-$nonPP=@($records | Where-Object { $_.Fmt -ne "Предпроект" })
-$g1=@($nonPP | Where-Object { $_.Status -eq "Заявка принята" })
-$g2=@($nonPP | Where-Object { $_.Status -eq "ТЗ на разработке" -or $_.Dept -eq "ОА" })
-$g3=@($nonPP | Where-Object { $_.Dept -eq "ОРПО" })
-$g4=@($nonPP | Where-Object { $_.Status -eq "Тестирование" })
-$inGroupRows = @($g1 + $g2 + $g3 + $g4 + $g5 | Select-Object -ExpandProperty Row)
-$gu=@($records | Where-Object { $inGroupRows -notcontains $_.Row })
+function Get-WorkStageGroup($record) {
+    $fmt = [string]$record.Fmt
+    $status = ([string]$record.Status).Trim()
+    $dept = ([string]$record.Dept).Trim()
+    $executionDept = ([string]$record.ExecutionDept).Trim()
+
+    if ($fmt -eq "Предпроект") { return "0" }
+    if ($status -eq "Заявка принята") { return "1" }
+    if ($status -eq "Разработка ТЗ" -or $status -eq "ТЗ на разработке") { return "2" }
+    if ($status -eq "Согласование ТЗ") { return "3" }
+    if (
+        $status -eq "Передано в ОРПО" -or
+        $status -eq "Возврат в ОРПО" -or
+        (
+            ($status -eq "Передано в исполнение" -or $status -eq "Возврат исполнителю" -or $status -eq "В работе") -and
+            $executionDept -eq "ОРПО"
+        )
+    ) { return "4" }
+    if ($status -eq "Проверка результата" -or $status -eq "Тестирование") { return "5" }
+    if ($dept -eq "ОА") { return "2" }
+    return "other"
+}
+
+$g0=@(); $g1=@(); $g2=@(); $g3=@(); $g4=@(); $g5=@(); $gu=@()
+foreach ($record in $records) {
+    switch (Get-WorkStageGroup $record) {
+        "0" { $g0 += $record }
+        "1" { $g1 += $record }
+        "2" { $g2 += $record }
+        "3" { $g3 += $record }
+        "4" { $g4 += $record }
+        "5" { $g5 += $record }
+        default { $gu += $record }
+    }
+}
 $overdue=@($records | Where-Object { $null -ne $_.DaysOverdue } | Sort-Object DaysOverdue -Descending)
 $upcoming=@($records | Where-Object { $null -ne $_.DaysLeft -and $_.DaysLeft -le 14 } | Sort-Object DaysLeft)
 $noDl=@($records | Where-Object { $null -eq $_.DlDate } | Sort-Object Dept,Name)
@@ -678,11 +705,12 @@ function Build-GroupHtml($title, $accentCls, $tasks, $showDept) {
     return "<div class='grp'><div class='grp-hdr $accentCls'><span>$title</span><div style='display:flex;align-items:center;gap:6px'>$copyBtn<span class='grp-cnt'>$cnt</span></div></div><div class='grp-body'>$body</div></div>"
 }
 
-$g5html = Build-GroupHtml "0. Предпроект"            "ga-slate"  $g5 $true
+$g0html = Build-GroupHtml "0. Предпроект"            "ga-slate"  $g0 $true
 $g1html = Build-GroupHtml "1. Заявка принята"       "ga-blue"   $g1 $true
-$g2html = Build-GroupHtml "2. Разработка ТЗ / ОА"  "ga-purple" $g2 $true
-$g3html = Build-GroupHtml "3. В работе в ОРПО"      "ga-amber"  $g3 $false
-$g4html = Build-GroupHtml "4. Тестирование"         "ga-teal"   $g4 $false
+$g2html = Build-GroupHtml "2. Разработка ТЗ/ОА"     "ga-purple" $g2 $true
+$g3html = Build-GroupHtml "3. Согласование ТЗ"      "ga-purple" $g3 $true
+$g4html = Build-GroupHtml "4. В работе в ОРПО"      "ga-amber"  $g4 $false
+$g5html = Build-GroupHtml "5. Тестирование"         "ga-teal"   $g5 $false
 
 $guHtml = Build-GroupHtml "Прочие / Уточнение" "ga-gray" $gu $true
 
@@ -1089,8 +1117,8 @@ $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Ou
 $sb.AppendLine('<div class="panel" style="margin-bottom:18px">') | Out-Null
 $sb.AppendLine('<h2>Этапы работы</h2>') | Out-Null
 $sb.AppendLine("<div class='filter-bar'><input type='text' id='srch' placeholder='Поиск по названию или ID...' oninput='filterTasks()'><select id='f-ex' onchange='filterTasks()'><option value=''>Все исполнители</option>$execOpts</select><select id='f-dp' onchange='filterTasks()'><option value=''>Все отделы</option>$deptOpts</select><button class='btn-reset' onclick=""document.getElementById('srch').value='';document.getElementById('f-ex').value='';document.getElementById('f-dp').value='';filterTasks()"">&#10005; Сбросить</button></div>") | Out-Null
-$sb.AppendLine("<div class='grps'>$g1html$g2html$g3html$g4html</div>") | Out-Null
-$sb.AppendLine("<div class='grps' style='margin-top:12px'>$g5html$guHtml</div>") | Out-Null
+$sb.AppendLine("<div class='grps'>$g1html$g2html$g3html$g4html$g5html</div>") | Out-Null
+$sb.AppendLine("<div class='grps' style='margin-top:12px'>$g0html$guHtml</div>") | Out-Null
 $sb.AppendLine('</div>') | Out-Null
 
 $projLegend = "<div style='display:flex;align-items:center;gap:14px;margin-bottom:12px;flex-wrap:wrap'><span style='font-size:11px;font-weight:700;color:#475569;text-transform:uppercase;letter-spacing:.5px'>Индекс здоровья проекта</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-g'></span>Норма (75-100)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-a'></span>Внимание (50-74)</span><span style='display:flex;align-items:center;gap:4px;font-size:11px;color:#475569'><span class='ph-dot ph-r'></span>Критично (&lt;50)</span><span style='font-size:10px;color:#94a3b8;margin-left:4px'>Наведите на точку для деталей</span></div>"
