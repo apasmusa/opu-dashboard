@@ -901,7 +901,7 @@ $genTimeDisplay = Get-Date -Format "dd.MM.yyyy HH:mm"
 $sb.AppendLine("<!DOCTYPE html><!-- Сгенерировано: $genTime --><html lang=""ru""><head><meta charset=""UTF-8""><meta name=""viewport"" content=""width=device-width,initial-scale=1""><title>Дашборд ОПУ</title>") | Out-Null
 $sb.AppendLine('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>') | Out-Null
 $sb.AppendLine('<style>') | Out-Null
-$sb.AppendLine('*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Segoe UI",Arial,sans-serif;background:#eef2f7;color:#1e293b;padding:20px;font-size:14px}') | Out-Null
+$sb.AppendLine('*{box-sizing:border-box;margin:0;padding:0}body{font-family:"Segoe UI",Arial,sans-serif;background:radial-gradient(circle at 8% 4%,rgba(147,197,253,.72) 0,rgba(147,197,253,0) 32%),radial-gradient(circle at 92% 12%,rgba(96,165,250,.38) 0,rgba(96,165,250,0) 28%),linear-gradient(135deg,#dbeafe 0%,#eff6ff 46%,#dbeafe 100%);background-attachment:fixed;color:#1e293b;padding:20px;font-size:14px}') | Out-Null
 $sb.AppendLine('h1{font-size:22px;font-weight:700;color:#1e3a5f}h2{font-size:12px;font-weight:700;color:#475569;margin-bottom:14px;text-transform:uppercase;letter-spacing:.6px}') | Out-Null
 $sb.AppendLine('.hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;padding:16px 20px;background:#fff;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.07)}') | Out-Null
 $sb.AppendLine('.hdr-sub{font-size:12px;color:#64748b;margin-top:3px}.date-badge{background:#1e3a5f;color:#fff;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600}') | Out-Null
@@ -1922,7 +1922,7 @@ $_loader = @"
 <title>Дашборд ОПУ</title>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:#0f172a;display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif}
+body{background:radial-gradient(circle at 18% 12%,#2563eb 0,transparent 35%),radial-gradient(circle at 84% 88%,#1e40af 0,transparent 38%),linear-gradient(135deg,#0f172a,#172554 52%,#0c4a6e);display:flex;align-items:center;justify-content:center;min-height:100vh;font-family:'Segoe UI',system-ui,sans-serif}
 .lk{background:#1e293b;border-radius:16px;padding:40px 36px;width:360px;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,.5)}
 .lk h1{color:#f1f5f9;font-size:20px;margin-bottom:8px}
 .lk p{color:#94a3b8;font-size:13px;margin-bottom:24px}
