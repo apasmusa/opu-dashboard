@@ -1110,7 +1110,6 @@ if ($plannerAvailable -and $attentionCounts.Unplanned -gt 0) { $attSummary += "<
 if ($attentionCounts.Risks -gt 0) { $attSummary += "<span class='att-count red'>Критичные риски: $($attentionCounts.Risks)</span>" }
 if ($plannerAvailable -and $attentionCounts.Overload -gt 0) { $attSummary += "<span class='att-count amber'>Перегрузка: $($attentionCounts.Overload)</span>" }
 $sb.AppendLine("<details class='attention'><summary class='att-hdr'><h2>Требует внимания</h2><span class='att-hint'>$attPlanHint</span></summary><div class='att-summary'>$attSummary</div><div class='att-list'>$attentionRows$attentionMore</div></details>") | Out-Null
-$sb.AppendLine("<section class='digest'><div class='digest-h'><h2>Недельный управленческий дайджест</h2><button class='no-print' onclick='copyWeeklyDigest()'>Скопировать</button></div><p id='weekly-digest'>$(Esc $weeklyDigest)</p></section>") | Out-Null
 $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлайн сегодня ($($todayTasks.Count))</div>" } else { "" }
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
