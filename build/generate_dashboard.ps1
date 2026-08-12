@@ -907,7 +907,7 @@ $sb.AppendLine('.hdr{display:flex;align-items:center;justify-content:space-betwe
 $sb.AppendLine('.hdr-sub{font-size:12px;color:#64748b;margin-top:3px}.date-badge{background:#1e3a5f;color:#fff;padding:6px 16px;border-radius:6px;font-size:13px;font-weight:600}') | Out-Null
 $sb.AppendLine('.hdr-right{display:flex;align-items:center;gap:12px}.btn-refresh{display:inline-flex;align-items:center;justify-content:center;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:6px 8px;text-decoration:none;background:#f8fafc;line-height:1}.btn-refresh:hover{background:#f1f5f9;color:#1e3a5f;border-color:#94a3b8}') | Out-Null
 $sb.AppendLine('.btn-ar{display:inline-flex;align-items:center;gap:5px;color:#64748b;border:1px solid #cbd5e1;border-radius:6px;padding:5px 8px;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;line-height:1}.btn-ar:hover{background:#f1f5f9;color:#1e3a5f}.btn-ar.ar-active{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}') | Out-Null
-$sb.AppendLine('.grp-copy{background:none;border:none;cursor:pointer;opacity:.4;padding:3px;border-radius:4px;display:inline-flex;align-items:center;color:inherit;line-height:1}.grp-copy:hover{opacity:1;background:rgba(255,255,255,.25)}') | Out-Null
+$sb.AppendLine('.grp-copy{background:none;border:none;cursor:pointer;opacity:.4;padding:3px;border-radius:4px;display:inline-flex;align-items:center;color:inherit;line-height:1}.grp-copy:hover{opacity:1;background:rgba(255,255,255,.25)}.stages-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap}.stages-hdr h2{margin:0}.stages-copy{padding:5px 9px;border:1px solid #cbd5e1;border-radius:6px;background:#f8fafc;color:#475569;cursor:pointer;font-size:11px;font-weight:700}.stages-copy:hover{background:#eff6ff;border-color:#93c5fd;color:#1d4ed8}') | Out-Null
 $sb.AppendLine('.obs-btn{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;background:#7c3aed;color:#fff!important;border-radius:4px;font-size:10px;font-weight:600;text-decoration:none!important;white-space:nowrap;vertical-align:middle;margin-left:6px;line-height:1.6}.obs-btn:hover{background:#6d28d9}') | Out-Null
 $sb.AppendLine('.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:18px}') | Out-Null
 $sb.AppendLine('.card{background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 1px 4px rgba(0,0,0,.07);border-left:4px solid #2563eb}') | Out-Null
@@ -1114,7 +1114,7 @@ $todayTitle = if ($todayTasks.Count -gt 0) { "<div class='tp-title'>Дедлай
 $sb.AppendLine("<div class='today-panel'>$todayTitle$todayTasksHtml</div>") | Out-Null
 
 $sb.AppendLine('<div class="panel" style="margin-bottom:18px">') | Out-Null
-$sb.AppendLine('<h2>Этапы работы</h2>') | Out-Null
+$sb.AppendLine('<div class="stages-hdr"><h2>Этапы работы</h2><button class="stages-copy no-print" type="button" onclick="copyAllWorkStages()">Скопировать все этапы</button></div>') | Out-Null
 $sb.AppendLine("<div class='filter-bar'><input type='text' id='srch' placeholder='Поиск по названию или ID...' oninput='filterTasks()'><select id='f-ex' onchange='filterTasks()'><option value=''>Все исполнители</option>$execOpts</select><select id='f-dp' onchange='filterTasks()'><option value=''>Все отделы</option>$deptOpts</select><button class='btn-reset' onclick=""document.getElementById('srch').value='';document.getElementById('f-ex').value='';document.getElementById('f-dp').value='';filterTasks()"">&#10005; Сбросить</button></div>") | Out-Null
 $sb.AppendLine("<div class='grps'>$g1html$g2html$g3html$g4html$g5html</div>") | Out-Null
 $sb.AppendLine("<div class='grps' style='margin-top:12px'>$g0html$guHtml</div>") | Out-Null
@@ -1604,6 +1604,25 @@ $sb.AppendLine('  if(!lines.length)return;') | Out-Null
 $sb.AppendLine('  navigator.clipboard.writeText(title+":\n"+lines.join("\n")).then(()=>{') | Out-Null
 $sb.AppendLine('    const t=document.getElementById("toast");') | Out-Null
 $sb.AppendLine('    t.textContent="Список скопирован";t.style.display="block";') | Out-Null
+$sb.AppendLine('    setTimeout(()=>{t.style.display="none";},2200);') | Out-Null
+$sb.AppendLine('  });') | Out-Null
+$sb.AppendLine('}') | Out-Null
+$sb.AppendLine('function copyAllWorkStages(){') | Out-Null
+$sb.AppendLine('  const sections=[];') | Out-Null
+$sb.AppendLine('  document.querySelectorAll(".grps .grp").forEach(grp=>{') | Out-Null
+$sb.AppendLine('    const title=grp.querySelector(".grp-hdr span")?.textContent?.trim()||"Этап";') | Out-Null
+$sb.AppendLine('    const lines=[];') | Out-Null
+$sb.AppendLine('    grp.querySelectorAll(".task").forEach(t=>{') | Out-Null
+$sb.AppendLine('      if(t.style.display==="none")return;') | Out-Null
+$sb.AppendLine('      const id=t.dataset.id||"",nm=t.dataset.name||"",ex=t.dataset.exec||"",cm=(t.dataset.comm||"").replace(/\s+/g," ").trim();') | Out-Null
+$sb.AppendLine('      lines.push(id+" - "+nm+(ex?" ("+ex+")":"")+(cm?" · "+cm:""));') | Out-Null
+$sb.AppendLine('    });') | Out-Null
+$sb.AppendLine('    sections.push(title+":\n"+(lines.length?lines.join("\n"):"нет заявок"));') | Out-Null
+$sb.AppendLine('  });') | Out-Null
+$sb.AppendLine('  if(!sections.length)return;') | Out-Null
+$sb.AppendLine('  navigator.clipboard.writeText("ЭТАПЫ РАБОТЫ\n\n"+sections.join("\n\n")).then(()=>{') | Out-Null
+$sb.AppendLine('    const t=document.getElementById("toast");') | Out-Null
+$sb.AppendLine('    t.textContent="Все этапы скопированы";t.style.display="block";') | Out-Null
 $sb.AppendLine('    setTimeout(()=>{t.style.display="none";},2200);') | Out-Null
 $sb.AppendLine('  });') | Out-Null
 $sb.AppendLine('}') | Out-Null
